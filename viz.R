@@ -79,5 +79,6 @@ p = ggmap(map, extent = "device") +
                  frame = round),
             size = 10)+
   theme(text = element_text(size=30))
+ani.options(interval = 0.5, ani.width = 800, ani.height = 800)
 gg_animate(p, "test.mp4")
 
