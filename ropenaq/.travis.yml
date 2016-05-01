@@ -1,0 +1,18 @@
+language: r
+sudo: false
+cache: packages
+
+r_github_packages:
+  - jimhester/covr
+  - jimhester/lintr
+
+notifications:
+    email:
+      on_success: change
+      on_failure: change
+
+after_success:
+  - Rscript -e 'library(covr); codecov()'
+
+env:
+- LINTR_COMMENT_BOT=true

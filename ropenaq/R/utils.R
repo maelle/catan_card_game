@@ -1,0 +1,261 @@
+
+######################################################################################
+# base URL for all queries
+base_url <- function() {
+  "https://api.openaq.org/v1/"
+}
+
+######################################################################################
+# checks arguments
+# and if no error returns their list
+buildQuery <- function(country = NULL, city = NULL, location = NULL,
+                       parameter = NULL, has_geo = NULL, date_from = NULL,
+                       date_to = NULL, value_from = NULL,
+                       value_to = NULL, limit = NULL,
+                       page = NULL){
+  # limit
+  if (!is.null(limit)) {
+    if (limit > 1000) {
+      stop(call. = FALSE, "limit cannot be more than 1000")
+    }
+  }
+
+  # location
+  if (!is.null(location)) {
+    pagee <- 1
+    locations <- NULL
+    nrows <- 1000
+    while(nrows == 1000){
+      temp <- aq_locations(country = country,
+                           city = city,
+                           page = pagee,
+                           limit = 1000)
+      nrows <- nrow(temp$results)
+      pagee <- pagee + 1
+      locations <- dplyr::bind_rows(locations, temp$results)
+    }
+    if (!(location %in% locations$locationURL)) {# nolint
+      stop(call. = FALSE, "This location/city/country combination is not available within the platform. See ?locations")# nolint
+    }
+    # make sure it won't be re-encoded by httr
+    Encoding(location) <- "UTF-8"
+    class(location) <- c("character", "AsIs")
+  }
+
+
+  # city
+  if (!is.null(city)) {
+    pagee <- 1
+    cities <- NULL
+    nrows <- 1000
+    while(nrows == 1000){
+      temp <- aq_cities(country = country,
+                        page = pagee,
+                        limit = 1000)
+      nrows <- nrow(temp$results)
+      pagee <- pagee + 1
+      cities <- dplyr::bind_rows(cities, temp$results)
+    }
+
+    if (!(city %in% cities$cityURL)) {# nolint
+      stop(call. = FALSE, paste0("This city/country combination is not available within the platform. See ?cities."))# nolint
+    }
+    # make sure it won't be re-encoded by httr
+    Encoding(city) <- "UTF-8"
+    class(city) <- c("character", "AsIs")
+  }
+
+  # country
+  if (!is.null(country)) {
+
+    if (!(country %in% aq_countries(limit = 1000)$results$code)) {# nolint
+      stop(call. = FALSE, "This country is not available within the platform. See ?countries")
+    }
+  }
+
+  # parameter
+  if (!is.null(parameter)) {
+    if (!(parameter %in% c("pm25", "pm10", "so2",
+                           "no2", "o3", "co", "bc"))) {
+      stop(call. = FALSE, "You asked for an invalid parameter: see list of valid parameters in the Arguments section of the function help")# nolint
+    }
+
+
+    pagee <- 1
+    locations <- NULL
+    nrows <- 1000
+    while(nrows == 1000){
+      temp <- aq_locations(country = country,
+                           city = city,
+                           page = pagee,
+                           location = location,
+                           limit = 1000)
+      nrows <- nrow(temp$results)
+      pagee <- pagee + 1
+      locations <- dplyr::bind_rows(locations, temp$results)
+    }
+    if (apply(locations[, parameter], 2, sum) == 0) {
+      stop(call. = FALSE, "This parameter is not available for any location corresponding to your query. See ?locations")# nolint
+    }
+  }
+
+  # has_geo
+  if (!is.null(has_geo)) {
+    if (has_geo == TRUE) {
+      has_geo <- "1"
+    }
+    if (has_geo == FALSE) {
+      has_geo <- "false"
+    }
+
+  }
+
+  # date_from
+  if (!is.null(date_from)) {
+    if (is.na(lubridate::ymd(date_from))) {
+      stop(call. = FALSE, "date_from and date_to have to be inputed as year-month-day.")
+    }
+  }
+  # date_to
+  if (!is.null(date_to)) {
+    if (is.na(lubridate::ymd(date_to))) {
+      stop(call. = FALSE, "date_from and date_to have to be inputed as year-month-day.")
+    }
+  }
+
+  # check dates
+  if (!is.null(date_from) & !is.null(date_to)) {
+    if (ymd(date_from) > ymd(date_to)) {
+      stop(call. = FALSE, "The start date must be smaller than the end date.")
+    }
+
+  }
+
+  # value_from
+  if (!is.null(value_from)) {
+    if (value_from < 0) {
+      stop(call. = FALSE, "No negative value for value_from please!")
+    }
+  }
+
+  # value_to
+  if (!is.null(value_to)) {
+    if (value_to < 0) {
+      stop(call. = FALSE, "No negative value for value_to please!")
+    }
+  }
+
+  # check values
+  if (!is.null(value_from) & !is.null(value_to)) {
+    if (value_to < value_from) {
+      stop(call. = FALSE, "The max value must be bigger than the min value.")
+    }
+
+  }
+
+  argsList <- list(country = country,
+                   city = city,
+                   location = location,
+                   parameter = parameter,
+                   has_geo = has_geo,
+                   date_from = date_from,
+                   date_to = date_to,
+                   value_from = value_from,
+                   value_to = value_to,
+                   limit = limit,
+                   page = page)
+
+  return(argsList)
+}
+######################################################################################
+# does the query and then parses it
+getResults <- function(urlAQ, argsList){
+  page <- httr::GET(url = urlAQ,
+                    query = argsList)
+  # convert the http error to a R error
+  httr::stop_for_status(page)
+  contentPage <- httr::content(page, as = "text")
+  # parse the data
+  output <- jsonlite::fromJSON(contentPage,
+                               flatten =TRUE)
+
+  results <- dplyr::tbl_df(output$results)
+
+  # get the meta
+  meta <- dplyr::tbl_df(
+    as.data.frame(output$meta))
+
+  #get the time stamps
+  timestamp <- dplyr::tbl_df(data.frame(
+    lastModif = lubridate::dmy_hms(
+      httr::headers(page)$"last-modified",
+      tz = "GMT"),
+    queriedAt = lubridate::dmy_hms(
+      httr::headers(page)$date,
+      tz = "GMT")))
+
+  return(list(results = results,
+              meta = meta,
+              timestamp = timestamp))
+}
+
+######################################################################################
+# for getting URL encoded versions of city and locations
+functionURL <- function(resTable, col1, newColName) {
+  mutateCall <- lazyeval::interp( ~ gsub(sapply(a, URLencode,
+                                                reserved = TRUE),
+                                         pattern = "\\%20",
+                                         replacement = "+"),
+                                  a = as.name(col1))
+
+  resTable %>% dplyr::mutate_(.dots = setNames(list(mutateCall),
+                                               newColName))
+}
+
+# encoding city name
+addCityURL <- function(resTable){
+  resTable <- functionURL(resTable,
+                          col1 = "city",
+                          newColName = "cityURL")
+
+  return(resTable)
+}
+
+# encoding location name
+addLocationURL <- function(resTable){
+  resTable <- functionURL(resTable,
+                          col1 = "location",
+                          newColName = "locationURL")
+  return(resTable)
+}
+
+######################################################################################
+# transform a given column in POSIXct
+functionTime <- function(resTable, newColName) {
+  mutateCall <- lazyeval::interp( ~ lubridate::ymd_hms(a),
+                                  a = as.name(newColName))
+
+  resTable %>% dplyr::mutate_(.dots = setNames(list(mutateCall),
+                                               newColName))
+}
+
+######################################################################################
+# create the parameters column
+functionParameters <- function(resTable) {
+  mutateCall <- lazyeval::interp( ~ unlist(lapply(a, toString)),
+                                  a = as.name("parameters")) %>%
+    lazyeval::interp( ~ gsub(.dot, pattern = "\"", sub = "")) %>%
+    lazyeval::interp( ~ gsub(.dot, pattern = "\\(", sub = "")) %>%
+    lazyeval::interp( ~ gsub(.dot, pattern = "c\\)", sub = "")) %>%
+    lazyeval::interp( ~ .dot)
+
+  resTable <- resTable %>% dplyr::mutate_(.dots = setNames(list(mutateCall),
+                                                           "parameters"))
+  resTable$pm25 <-  grepl("pm25", resTable$parameters)
+  resTable$pm10 <-  grepl("pm10", resTable$parameters)
+  resTable$no2 <-  grepl("no2", resTable$parameters)
+  resTable$o3 <-  grepl("o3", resTable$parameters)
+  resTable$co <-  grepl("co", resTable$parameters)
+  resTable$bc <-  grepl("bc", resTable$parameters)
+  resTable <- resTable %>% select_(~ - parameters)
+}
