@@ -110,3 +110,6 @@ damien <- select(damien, round, what, emoji, which, latitude, longitude) %>%
   mutate(who = "damien")
 
 
+########################
+score1 <- readr::read_csv("data/damien.csv")
+score2 <- readr::read_csv("data/maelle.csv")

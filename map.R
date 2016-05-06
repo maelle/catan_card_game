@@ -19,6 +19,14 @@ p = ggmap(map, extent = "device") +
             label = "Damienland") +
   geom_text(x = 0, y = 50.5,
             label = "Market") +
+  geom_text(data = score1,
+             aes(x = 7, y = 54.5,
+                 size = victory, frame = round),
+            label = emoji("crown"), family='OpenSansEmoji') +
+  geom_text(data = score2,
+             aes(x = - 9, y = 45,
+                 size = victory, frame = round),
+            label = emoji("crown"), family='OpenSansEmoji') +
   geom_text(data = todo,
             aes(x = longitude,
                 y = latitude,
